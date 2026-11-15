@@ -44,7 +44,7 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
         ) {
     if (length < 8+8+11) return -1; // too small
     const uint8_t * const end = data + length;
-    uint8_t *i = data;
+    const uint8_t *i = data;
     if (i[0] != 0x6c || i[1] != 0x97) return -2; // bad signature
     int on_s = on_signature == 0 ? 0 : on_signature(ctx, (akomsg_mtype) i[2], i[3], gu32(i+4));
     if (on_s != AKOMSG_CONTINUE) return on_s;
@@ -61,7 +61,7 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
     if (i[0] != C_RS) return -3; // malformed header
 
     i += 1;
-    uint8_t *sender_s = i;
+    const uint8_t *sender_s = i;
     for (; i < end; ++i) {
         if (*i == C_RS) break;
     }
@@ -69,19 +69,19 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
     uint32_t sender_len = i - sender_s;
 
     i += 1;
-    uint8_t *receiver_s = i;
+    const uint8_t *receiver_s = i;
     for (; i < end; ++i) {
-        if (*i = C_RS || *i == C_STX) break;
+        if (*i == C_RS || *i == C_STX) break;
     }
     if (i == end) return -4; // no end
     uint32_t receiver_len = i - receiver_s;
     
-    int on_hs = on_header_start == 0 ? 0 : on_header_start(ctx, msg_id, (str_slice) { sender_s, sender_len }, (str_slice) { receiver_s, receiver_len });
+    int on_hs = on_header_start == 0 ? 0 : on_header_start(ctx, msg_id, (str_slice) { (const char *) sender_s, sender_len }, (str_slice) { (const char *) receiver_s, receiver_len });
     if (on_hs != AKOMSG_CONTINUE) return on_hs;
 
     while (*i == C_RS) {
         i += 1;
-        uint8_t *name_s = i;
+        const uint8_t *name_s = i;
         for (; i < end; ++i) {
             if (*i == C_US) break;
         }
@@ -90,11 +90,11 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
 
         i += 1; 
         if (i == end) return -3; // malformed header
-        str_slice name = { name_s, name_len };
+        str_slice name = { (const char *) name_s, name_len };
         int on_hr;
         switch (*i) {
         case 0x00:
-        case 0xff:
+        case 0xff: {
             // i56
             if (i + 8 >= end) return -5; // bad int
             int64_t val_i = (((int64_t) i[0]) << 56)
@@ -108,17 +108,18 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
             i += 8;
             on_hr = on_header_field_int == 0 ? 0 : on_header_field_int(ctx, name, val_i);
             break;
-        
-        default:
+        }
+        default: {
             // utf8 RS/STX terminated string
-            uint8_t *val_s = i;
+            const uint8_t *val_s = i;
             for (; i < end; ++i) {
                 if (*i == C_RS || *i == C_STX) break;
             }
             if (i == end) return -4; // no end
             uint32_t val_len = i - val_s;
-            on_hr = on_header_field_str == 0 ? 0 : on_header_field_str(ctx, name, (str_slice) { val_s, val_len });
+            on_hr = on_header_field_str == 0 ? 0 : on_header_field_str(ctx, name, (str_slice) { (const char *) val_s, val_len });
             break;
+        }
         }
         if (on_hr != AKOMSG_CONTINUE) return on_hr;
     }

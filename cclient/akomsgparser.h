@@ -13,15 +13,15 @@ typedef enum {
 #define AKOMSG_IS_SIGNED(X) (!!((X) & 0x02))
 #define AKOMSG_IS_COMPRESSED(X) (!!((X) & 0x04))
 
+typedef struct str_slice {
+    const char *p;
+    uint32_t len;
+} str_slice;
+
 typedef union {
     uint32_t number;
-    char *text;
+    str_slice text;
 } header_value;
-
-typedef struct {
-    const char * const p;
-    const uint32_t len;
-} str_slice;
 
 #define AKOMSG_CONTINUE 0
 
@@ -31,7 +31,7 @@ typedef int (*akomsg_on_header_start)(void *ctx, uint64_t msg_id, str_slice send
 
 typedef int (*akomsg_on_header_field_str)(void *ctx, str_slice name, str_slice value);
 typedef int (*akomsg_on_header_field_int)(void *ctx, str_slice name, int64_t value);
-typedef int (*akomsg_on_data)(void *ctx, uint8_t *data, uint32_t length, uint32_t crc);
+typedef int (*akomsg_on_data)(void *ctx, const uint8_t *data, uint32_t length, uint32_t crc);
 
 int parse(void *ctx, const uint8_t * const data, uint32_t length
         , akomsg_on_signature on_signature
