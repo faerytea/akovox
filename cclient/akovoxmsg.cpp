@@ -250,20 +250,20 @@ void akovox::compression_inflate(std::vector<uint8_t> &data) {
 }
 
 void akovox::sign_ed25519(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (0 != sodium_init()) throw -1;
+    if (-1 == sodium_init()) throw -1;
     auto data_len = data.size();
     data.resize(data_len + crypto_sign_BYTES);
     auto s_r = crypto_sign_ed25519_detached(data.data() + data_len, NULL, data.data(), data_len, key);
     if (s_r != 0) throw s_r;
 }
 void akovox::verify_ed25519(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (0 != sodium_init()) throw -1;
+    if (-1 == sodium_init()) throw -1;
     auto data_len = data.size() - crypto_sign_BYTES;
     auto v_r = crypto_sign_ed25519_verify_detached(data.data() + data_len, data.data(), data_len, key);
     if (v_r != 0) throw v_r;
 }
 void akovox::encrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (0 != sodium_init()) throw -1;
+    if (-1 == sodium_init()) throw -1;
     std::vector<uint8_t> result(data.size() + crypto_box_NONCEBYTES + crypto_box_MACBYTES);
     uint8_t *nonce_p = result.data() + data.size() + crypto_box_MACBYTES;
     auto c_r = crypto_box_curve25519xsalsa20poly1305_afternm(result.data(), data.data(), data.size(), nonce_p, key);
@@ -271,7 +271,7 @@ void akovox::encrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, cons
     data.swap(result);
 }
 void akovox::decrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (0 != sodium_init()) throw -1;
+    if (-1 == sodium_init()) throw -1;
     std::vector<uint8_t> result(data.size() - crypto_box_NONCEBYTES - crypto_box_MACBYTES);
     uint8_t *nonce_p = data.data() + (data.size() - crypto_box_NONCEBYTES);
     auto c_r = crypto_box_curve25519xsalsa20poly1305_open_afternm(result.data(), data.data(), data.size() - crypto_box_NONCEBYTES, nonce_p, key);

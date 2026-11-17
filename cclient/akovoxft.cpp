@@ -90,6 +90,7 @@ struct {
     profile me;
     udp_peer me_as_peer;
     participant_map participants;
+    std::unordered_map<std::string, id_t> known_names;
     int sock;
     in_addr_t sip;
     in_port_t sport;
@@ -314,6 +315,11 @@ uint8_t *handle_full_data(uint8_t *buffer, const uint8_t * const end) {
             std::forward_as_tuple(enc_p, (size_t) clen, identity_p, (size_t) ilen, name_p, (size_t) nlen, &peer_host)
         );
         state.unknown_ids.erase(peer_host.id);
+        state.known_names.emplace(
+            std::piecewise_construct,
+            std::forward_as_tuple(name_p, nlen),
+            std::forward_as_tuple(ph_id)
+        );
         i += sizeof(udp_peer);
 
         LOG(INFO) {
@@ -412,13 +418,42 @@ void handle_incoming_server(const size_t len) {
 
 void handle_incoming_client(const size_t len) {
     auto msg = akovox::parse(UDP_BUFFER, len);
+    auto user_id_it = state.known_names.find(msg.sender());
+    const unsigned char *spk = nullptr, *cpk = nullptr;
+    size_t spkl = 0, cpkl = 0;
+    participant_map::iterator pit = state.participants.end();
+    if (user_id_it != state.known_names.end()) {
+        pit = state.participants.find(user_id_it->second);
+        if (pit == state.participants.end()) {
+            LOG(FATAL) {
+                std::cerr << "User '" << msg.sender() << "' have id ("
+                          << user_id_it->second << "), but no 'participant'" << std::endl;
+            }
+            return;
+        }
+        spk = pit->second.sign_pk.data();
+        cpk = pit->second.crypt_pk.data();
+        spkl = pit->second.sign_pk.size();
+        cpkl = pit->second.crypt_pk.size();
+    }
     // auto peer = state. // todo: name -> id mapping
-    if (msg.is_encrypted()) {
-
-        akovox::decrypt(msg);
+    if (msg.is_encrypted() && cpk != nullptr) {
+        if (pit->second.for_me.empty()) {
+            std::vector<uint8_t> shared(crypto_box_BEFORENMBYTES);
+            auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), cpk, state.me.csk);
+            if (r == -1) throw -7;
+            pit->second.for_me.swap(shared);
+        }
+        akovox::decrypt(msg, pit->second.for_me.data(), pit->second.for_me.size());
+    }
+    if (msg.is_signed() && spk != nullptr) {
+        akovox::break_seal(msg, spk, spkl);
+    }
+    if (msg.is_compressed()) {
+        akovox::decompress(msg);
     }
     SAFE_OUT {
-        std::cout << msg.sender();
+        std::cout << msg.sender() << "\n\t" << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) << std::endl;
     }
 }
 
