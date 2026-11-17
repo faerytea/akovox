@@ -1,4 +1,12 @@
-#include <inttypes.h>
+#ifndef AKOMSG_PARSER_H
+#define AKOMSG_PARSER_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum {
     AKOMSG_TECH = 1,
@@ -15,7 +23,7 @@ typedef enum {
 
 typedef struct str_slice {
     const char *p;
-    uint32_t len;
+    size_t len;
 } str_slice;
 
 typedef union {
@@ -40,3 +48,25 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
         , akomsg_on_header_field_int on_header_field_int
         , akomsg_on_data on_data
         );
+
+#ifdef __cplusplus
+inline constexpr size_t signature_len = 8;
+#else
+static const size_t signature_len = 8;
+#endif
+uint8_t *write_signature(uint8_t *dest, const akomsg_mtype type, const uint8_t flags, const uint32_t proto_version);
+size_t start_header_length(const size_t sender_len, const size_t receiver_len);
+uint8_t *start_header(uint8_t *dest, const uint64_t msg_id, const str_slice sender, const str_slice receiver);
+size_t header_field_length(const size_t name_len, const size_t value_len);
+uint8_t *append_header_str(uint8_t *dest, const str_slice key, const str_slice value);
+uint8_t *append_header_int(uint8_t *dest, const str_slice key, const int64_t value);
+size_t data_length(const size_t data_len);
+uint8_t *append_data(uint8_t *dest, const uint8_t *data, const size_t data_len);
+
+uint32_t posix_crc32(const uint8_t *data, size_t data_len);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
