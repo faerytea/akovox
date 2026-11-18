@@ -23,8 +23,8 @@ struct profile {
     unsigned char 
         spk[crypto_sign_ed25519_PUBLICKEYBYTES], 
         ssk[crypto_sign_ed25519_SECRETKEYBYTES],
-        cpk[crypto_box_curve25519xchacha20poly1305_PUBLICKEYBYTES],
-        csk[crypto_box_curve25519xchacha20poly1305_SECRETKEYBYTES];
+        cpk[crypto_box_curve25519xsalsa20poly1305_PUBLICKEYBYTES],
+        csk[crypto_box_curve25519xsalsa20poly1305_SECRETKEYBYTES];
     std::string name;
 };
 
@@ -140,7 +140,7 @@ void login() {
     req->requestor_id = 0; // no id yet
     req->salt = randombytes_random();
     req->valid_until = htobe64(now_ms() + state.srv_ka_timeout_ms + state.srv_ka_rtt_timeout_ms);
-    auto csize = crypto_box_curve25519xchacha20poly1305_PUBLICKEYBYTES;
+    auto csize = crypto_box_curve25519xsalsa20poly1305_PUBLICKEYBYTES;
     auto ssize = crypto_sign_ed25519_PUBLICKEYBYTES;
     auto nsize = state.me.name.length();
     auto vsize = crypto_sign_BYTES;
@@ -416,6 +416,20 @@ void handle_incoming_server(const size_t len) {
     }
 }
 
+#define DEBUG
+#ifdef DEBUG
+void dump(const std::vector<uint8_t> &data) {
+    SAFE_OUT {
+        for (auto b : data) {
+            fprintf(stderr, "%02x ", b);
+        }
+        fprintf(stderr, "\n");
+    }
+}
+#else
+inline void dump(const std::vector<uint8_t> &data) {}
+#endif
+
 void handle_incoming_client(const size_t len) {
     auto msg = akovox::parse(UDP_BUFFER, len);
     auto user_id_it = state.known_names.find(msg.sender());
@@ -441,9 +455,13 @@ void handle_incoming_client(const size_t len) {
     // auto peer = state. // todo: name -> id mapping
     if (msg.is_encrypted() && cpk != nullptr) {
         if (pit->second.for_me.empty()) {
-            std::vector<uint8_t> shared(crypto_box_BEFORENMBYTES);
+            std::vector<uint8_t> shared(crypto_box_curve25519xsalsa20poly1305_BEFORENMBYTES);
             auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), cpk, state.me.csk);
             if (r == -1) throw -7;
+            SAFE_OUT {
+                std::cerr << "Calculated shared secret for " << pit->second.name << std::endl;
+            }
+            dump(shared);
             pit->second.for_me.swap(shared);
         }
         akovox::decrypt(msg, pit->second.for_me.data(), pit->second.for_me.size());
@@ -520,11 +538,15 @@ void broadcast(const char *line) {
             std::vector<uint8_t> shared(crypto_box_BEFORENMBYTES);
             auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), p.second.crypt_pk.data(), state.me.csk);
             if (r == -1) throw -7;
+            SAFE_OUT {
+                std::cerr << "Calculated shared secret for " << p.second.name << std::endl;
+            }
+            dump(shared);
             p.second.for_me.swap(shared);
         }
         akovox::akovoxmsg c(base);
         c._receiver = p.second.name;
-        // akovox::encrypt(c, akovox::X25519XSalsa, p.second.for_me.data(), crypto_box_BEFORENMBYTES);
+        akovox::encrypt(c, akovox::X25519XSalsa, p.second.for_me.data(), crypto_box_BEFORENMBYTES);
         auto end = akovox::write(UDP_BUFFER, c);
         send_buffer(p.second.peer.ip, p.second.peer.port, end - UDP_BUFFER);
     }
@@ -574,7 +596,7 @@ int main(int argc, char *argv[]) {
 
     // todo load keys
     crypto_sign_ed25519_keypair(state.me.spk, state.me.ssk);
-    crypto_box_curve25519xchacha20poly1305_keypair(state.me.cpk, state.me.csk);
+    crypto_box_curve25519xsalsa20poly1305_keypair(state.me.cpk, state.me.csk);
     // odot
 
     // run

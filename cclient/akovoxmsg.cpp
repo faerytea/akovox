@@ -237,21 +237,27 @@ void akovox::verify_ed25519(std::vector<uint8_t> &data, const uint8_t *key, cons
     if (v_r != 0) throw signature_exception("bad signature: " + std::to_string(v_r));
     data.resize(data_len);
 }
+static_assert(
+    std::string_view(crypto_box_PRIMITIVE) ==
+    "curve25519xsalsa20poly1305"
+);
 void akovox::encrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
     auto si = sodium_init();
     if (si < 0) throw encryption_exception("cannot init libsodium: " + std::to_string(si));
-    std::vector<uint8_t> result(data.size() + crypto_box_NONCEBYTES + crypto_box_MACBYTES);
-    uint8_t *nonce_p = result.data() + data.size() + crypto_box_MACBYTES;
-    auto c_r = crypto_box_curve25519xsalsa20poly1305_afternm(result.data(), data.data(), data.size(), nonce_p, key);
+    // if (data.size() < 32) data.resize(32, 0);
+    std::vector<uint8_t> result(data.size() + crypto_box_curve25519xsalsa20poly1305_MACBYTES + crypto_box_curve25519xsalsa20poly1305_NONCEBYTES);
+    uint8_t *nonce_p = result.data() + data.size() + crypto_box_curve25519xsalsa20poly1305_MACBYTES;
+    randombytes_buf(nonce_p, crypto_box_curve25519xsalsa20poly1305_NONCEBYTES);
+    auto c_r = crypto_box_easy_afternm(result.data(), data.data(), data.size(), nonce_p, key);
     if (c_r != 0) throw encryption_exception("cannot encrypt: " + std::to_string(c_r));
     data.swap(result);
 }
 void akovox::decrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
     auto si = sodium_init();
     if (si < 0) throw encryption_exception("cannot init libsodium: " + std::to_string(si));
-    std::vector<uint8_t> result(data.size() - crypto_box_NONCEBYTES - crypto_box_MACBYTES);
-    uint8_t *nonce_p = data.data() + (data.size() - crypto_box_NONCEBYTES);
-    auto c_r = crypto_box_curve25519xsalsa20poly1305_open_afternm(result.data(), data.data(), data.size() - crypto_box_NONCEBYTES, nonce_p, key);
+    std::vector<uint8_t> result(data.size() - crypto_box_curve25519xsalsa20poly1305_NONCEBYTES - crypto_box_curve25519xsalsa20poly1305_MACBYTES);
+    uint8_t *nonce_p = data.data() + (data.size() - crypto_box_curve25519xsalsa20poly1305_NONCEBYTES);
+    auto c_r = crypto_box_open_easy_afternm(result.data(), data.data(), data.size() - crypto_box_curve25519xsalsa20poly1305_NONCEBYTES, nonce_p, key);
     if (c_r != 0) throw encryption_exception("cannot decrypt: " + std::to_string(c_r));
     data.swap(result);
 }
