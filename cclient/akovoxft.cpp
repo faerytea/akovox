@@ -426,6 +426,16 @@ void dump(const std::vector<uint8_t> &data) {
         fprintf(stderr, "\n");
     }
 }
+
+void dump(const unsigned char *data, size_t len) {
+    SAFE_OUT {
+        for (size_t i = 0; i < len; ++i) {
+            fprintf(stderr, "%02x ", data[i]);
+        }
+        fprintf(stderr, "\n");
+    }
+}
+
 #else
 inline void dump(const std::vector<uint8_t> &data) {}
 #endif
@@ -629,7 +639,7 @@ int main(int argc, char *argv[]) {
             // something on sockets
             ssize_t len;
             sockaddr_in src;
-            socklen_t srclen;
+            socklen_t srclen = sizeof(sockaddr_in);
             do {
                 len = recvfrom(state.sock, UDP_BUFFER, 0xffff, 0, (sockaddr *) &src, &srclen);
                 if (len > 0) {
@@ -649,6 +659,13 @@ int main(int argc, char *argv[]) {
             rl_callback_read_char();
         }
     }
+
+    for (auto &p : state.participants) {
+        auto &sk = p.second.for_me;
+        sodium_memzero(sk.data(), sk.size());
+    }
+    sodium_memzero(state.me.csk, crypto_box_curve25519xsalsa20poly1305_SECRETKEYBYTES);
+    sodium_memzero(state.me.ssk, crypto_sign_ed25519_SECRETKEYBYTES);
 
     rl_callback_handler_remove();
     return 0;
