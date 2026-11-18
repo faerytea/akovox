@@ -86,8 +86,13 @@ akovoxmsg akovox::parse(const uint8_t * const data, uint32_t length) {
     std::unordered_map<std::string, std::variant<int64_t, std::string> > headers;
     ps.m = &headers;
     auto res = parse(&ps, data, length, on_sig, on_hs, on_hrs, on_hri, on_data);
-    if (res != 0) throw res;
-    if (posix_crc32(ps.data, ps.data_len) != ps.crc) throw ps.crc;
+    if (res != 0)
+        throw impossible("'parse' returned nonz " + std::to_string(res));
+    auto ccrc = posix_crc32(ps.data, ps.data_len);
+    if (ccrc != ps.crc) 
+        throw malformed_msg_exception(
+            "bad CRC: provided " + std::to_string(ps.crc) + " calculated " + std::to_string(ccrc)
+        );
     return akovoxmsg(ps.type, ps.flags, ps.proto, ps.id, 
                      std::string(ps.sender.p, ps.sender.len),
                      std::string(ps.receiver.p, ps.receiver.len),
@@ -163,20 +168,26 @@ std::unordered_map<std::string_view, std::pair<crypto_f, crypto_f>> &akovox::get
 void akovox::noop(std::vector<uint8_t> &data) {}
 void akovox::noop_c(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {}
 
+class zlib_exception : public compression_exception {
+public:
+    explicit zlib_exception(std::string where, int zlib_code): 
+    compression_exception("ZLib error: " + std::move(where) + " returned " + std::to_string(zlib_code)) {};
+};
+
 void akovox::compression_deflate(std::vector<uint8_t> &data) {
     z_stream s;
     s.zalloc = Z_NULL;
     s.zfree = Z_NULL;
     s.opaque = Z_NULL;
     int z_init = deflateInit2(&s, 9, Z_DEFLATED, -15, 9, Z_DEFAULT_STRATEGY);
-    if (z_init != Z_OK) throw z_init;
+    if (z_init != Z_OK) throw zlib_exception("deflateInit2", z_init);
     s.avail_in = data.size();
     s.next_in = data.data();
     std::vector<uint8_t> compressed((size_t) deflateBound(&s, data.size()));
     s.avail_out = compressed.size();
     s.next_out = compressed.data();
     auto def_res = deflate(&s, Z_FINISH);
-    if (def_res != Z_STREAM_END) throw def_res;
+    if (def_res != Z_STREAM_END) throw zlib_exception("deflate", def_res);
     compressed.resize(compressed.size() - s.avail_out);
     deflateEnd(&s);
     data.swap(compressed);
@@ -188,7 +199,7 @@ void akovox::compression_inflate(std::vector<uint8_t> &data) {
     s.zfree = Z_NULL;
     s.opaque = Z_NULL;
     int z_init = inflateInit2(&s, -15);
-    if (z_init != Z_OK) throw z_init;
+    if (z_init != Z_OK) throw zlib_exception("inflateInit2", z_init);
     s.avail_in = data.size();
     s.next_in = data.data();
     std::vector<uint8_t> decompressed(data.size() << 1);
@@ -198,7 +209,7 @@ void akovox::compression_inflate(std::vector<uint8_t> &data) {
         s.next_out = decompressed.data() + have;
         auto inf_ret = inflate(&s, Z_NO_FLUSH);
         if (inf_ret == Z_NEED_DICT || inf_ret == Z_DATA_ERROR || inf_ret == Z_MEM_ERROR)
-            throw inf_ret;
+            throw zlib_exception("deflate", inf_ret);
         have = decompressed.size() - s.avail_out;
         if (inf_ret == Z_STREAM_END) break;
         if ((have << 1) > decompressed.size()) {
@@ -211,32 +222,36 @@ void akovox::compression_inflate(std::vector<uint8_t> &data) {
 }
 
 void akovox::sign_ed25519(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (-1 == sodium_init()) throw -1;
+    auto si = sodium_init();
+    if (si < 0) throw signature_exception("cannot init libsodium: " + std::to_string(si));
     auto data_len = data.size();
     data.resize(data_len + crypto_sign_BYTES);
     auto s_r = crypto_sign_ed25519_detached(data.data() + data_len, NULL, data.data(), data_len, key);
-    if (s_r != 0) throw s_r;
+    if (s_r != 0) throw signature_exception("cannot sign: " + std::to_string(s_r));
 }
 void akovox::verify_ed25519(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (-1 == sodium_init()) throw -1;
+    auto si = sodium_init();
+    if (si < 0) throw signature_exception("cannot init libsodium: " + std::to_string(si));
     auto data_len = data.size() - crypto_sign_BYTES;
     auto v_r = crypto_sign_ed25519_verify_detached(data.data() + data_len, data.data(), data_len, key);
-    if (v_r != 0) throw v_r;
+    if (v_r != 0) throw signature_exception("bad signature: " + std::to_string(v_r));
 }
 void akovox::encrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (-1 == sodium_init()) throw -1;
+    auto si = sodium_init();
+    if (si < 0) throw encryption_exception("cannot init libsodium: " + std::to_string(si));
     std::vector<uint8_t> result(data.size() + crypto_box_NONCEBYTES + crypto_box_MACBYTES);
     uint8_t *nonce_p = result.data() + data.size() + crypto_box_MACBYTES;
     auto c_r = crypto_box_curve25519xsalsa20poly1305_afternm(result.data(), data.data(), data.size(), nonce_p, key);
-    if (c_r != 0) throw c_r;
+    if (c_r != 0) throw encryption_exception("cannot encrypt: " + std::to_string(c_r));
     data.swap(result);
 }
 void akovox::decrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
-    if (-1 == sodium_init()) throw -1;
+    auto si = sodium_init();
+    if (si < 0) throw encryption_exception("cannot init libsodium: " + std::to_string(si));
     std::vector<uint8_t> result(data.size() - crypto_box_NONCEBYTES - crypto_box_MACBYTES);
     uint8_t *nonce_p = data.data() + (data.size() - crypto_box_NONCEBYTES);
     auto c_r = crypto_box_curve25519xsalsa20poly1305_open_afternm(result.data(), data.data(), data.size() - crypto_box_NONCEBYTES, nonce_p, key);
-    if (c_r != 0) throw c_r;
+    if (c_r != 0) throw encryption_exception("cannot decrypt: " + std::to_string(c_r));
     data.swap(result);
 }
 
@@ -249,9 +264,9 @@ akovoxmsg &akovox::compress(
     const std::string_view compression_name,
     const std::unordered_map<std::string_view, std::pair<compression_f, compression_f>> &registry// = get_compression_registry()
 ) {
-    if (msg.raw_flags() != 0) throw -2;
+    if (msg.raw_flags() != 0) throw illegal_state("trying to compress modified body (f:" + std::to_string(msg.raw_flags()) + ")");
     auto it = registry.find(compression_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(compression_name);
     it->second.first(msg._data);
     if (it->first != DEFLATE) {
         msg._headers.emplace(
@@ -269,9 +284,9 @@ akovoxmsg &akovox::sign(
     const std::string_view signing_name, const uint8_t *s_key, size_t s_key_len,
     const std::unordered_map<std::string_view, std::pair<crypto_f, crypto_f>> &registry
 ) {
-    if (msg.raw_flags() >= 0x02) throw -2;
+    if (msg.raw_flags() >= 0x02) throw illegal_state("trying to sign modified body (f:" + std::to_string(msg.raw_flags()) + ")");
     auto it = registry.find(signing_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(signing_name);
     it->second.first(msg._data, s_key, s_key_len);
     if (it->first != ED25519) {
         msg._headers.emplace(
@@ -289,9 +304,9 @@ akovoxmsg &akovox::encrypt(
     const std::string_view encryption_name, const uint8_t *e_key, size_t e_key_len,
     const std::unordered_map<std::string_view, std::pair<crypto_f, crypto_f>> &registry
 ) {
-    if (msg.raw_flags() >= 0x04) throw -2;
+    if (msg.raw_flags() >= 0x04) throw illegal_state("trying to encrypt modified body (f:" + std::to_string(msg.raw_flags()) + ")");
     auto it = registry.find(encryption_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(encryption_name);
     it->second.first(msg._data, e_key, e_key_len);
     if (it->first != X25519XSalsa) {
         msg._headers.emplace(
@@ -310,7 +325,8 @@ akovoxmsg &akovox::decrypt(
     const std::unordered_map<std::string_view, std::pair<crypto_f, crypto_f>> &registry
 ) {
     if (!msg.is_encrypted()) return msg;
-    if (!flag_is_highest(0x04, msg.raw_flags())) throw -2;
+    if (!flag_is_highest(0x04, msg.raw_flags())) 
+        throw illegal_state("trying to decrypt modified body (f:" + std::to_string(msg.raw_flags()) + ")");
     auto encryption_header = msg.headers().find("E");
     std::string_view encryption_name = X25519XSalsa;
     if (encryption_header != msg.headers().end()) {
@@ -318,11 +334,11 @@ akovoxmsg &akovox::decrypt(
         if (std::holds_alternative<std::string>(v)) {
             encryption_name = std::string_view(std::get<std::string>(v));
         } else {
-            throw -3;
+            throw malformed_msg_exception("value of header 'E' is not a string, it is " + std::to_string(std::get<int64_t>(v)));
         }
     }
     auto it = registry.find(encryption_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(encryption_name);
     it->second.second(msg._data, e_key, e_key_len);
     msg._flags &= ~(0x04);
     return msg;
@@ -334,7 +350,8 @@ akovoxmsg &akovox::break_seal(
     const std::unordered_map<std::string_view, std::pair<crypto_f, crypto_f>> &registry
 ) {
     if (!msg.is_signed()) return msg;
-    if (!flag_is_highest(0x02, msg.raw_flags())) throw -2;
+    if (!flag_is_highest(0x02, msg.raw_flags()))
+        throw illegal_state("trying to unseal modified body (f:" + std::to_string(msg.raw_flags()) + ")");
     auto signing_header = msg.headers().find("S");
     std::string_view signing_name = ED25519;
     if (signing_header != msg.headers().end()) {
@@ -342,11 +359,11 @@ akovoxmsg &akovox::break_seal(
         if (std::holds_alternative<std::string>(v)) {
             signing_name = std::string_view(std::get<std::string>(v));
         } else {
-            throw -3;
+            throw malformed_msg_exception("value of header 'S' is not a string, it is " + std::to_string(std::get<int64_t>(v)));
         }
     }
     auto it = registry.find(signing_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(signing_name);
     it->second.second(msg._data, s_key, s_key_len);
     msg._flags &= ~(0x02);
     return msg;
@@ -357,7 +374,8 @@ akovoxmsg &akovox::decompress(
     const std::unordered_map<std::string_view, std::pair<compression_f, compression_f>> &registry
 ) {
     if (!msg.is_compressed()) return msg;
-    if (!flag_is_highest(0x01, msg.raw_flags())) throw -2;
+    if (!flag_is_highest(0x01, msg.raw_flags()))
+        throw illegal_state("trying to decompress modified body (f:" + std::to_string(msg.raw_flags()) + ")");;
     auto compression_header = msg.headers().find("C");
     std::string_view compression_name = ED25519;
     if (compression_header != msg.headers().end()) {
@@ -365,11 +383,11 @@ akovoxmsg &akovox::decompress(
         if (std::holds_alternative<std::string>(v)) {
             compression_name = std::string_view(std::get<std::string>(v));
         } else {
-            throw -3;
+            throw malformed_msg_exception("value of header 'C' is not a string, it is " + std::to_string(std::get<int64_t>(v)));
         }
     }
     auto it = registry.find(compression_name);
-    if (it == registry.end()) throw -1;
+    if (it == registry.end()) throw unknown_algorythm(compression_name);
     it->second.second(msg._data);
     msg._flags &= ~(0x01);
     return msg;

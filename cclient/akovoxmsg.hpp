@@ -10,6 +10,85 @@
 
 namespace akovox {
 
+namespace fastconcat {
+    inline std::string_view as_view(const std::string& s) noexcept { return s; }
+    inline std::string_view as_view(std::string_view s) noexcept { return s; }
+
+    template <std::size_t N>
+    constexpr std::string_view as_view(const char (&s)[N]) noexcept {
+        // Exclude the terminating null character for string literals.
+        return {s, N - 1};
+    }
+
+    inline std::string_view as_view(const char* s) noexcept {
+        return s ? std::string_view{s} : std::string_view{};
+    }
+
+    template <typename... Args>
+    std::string concat(const Args&... args) {
+        const std::size_t total_size =
+            (std::size_t{0} + ... + as_view(args).size());
+
+        std::string result;
+        result.reserve(total_size);
+
+        (result.append(as_view(args)), ...);
+
+        return result;
+    }
+
+} // namespace fastconcat
+
+class exception : public std::exception {
+protected:
+    std::string _message;
+
+public:
+    explicit exception(std::string msg) : _message(std::move(msg)) {}
+
+    const char* what() const noexcept override {
+        return _message.c_str();
+    }
+};
+
+class impossible : public exception {
+public:
+    explicit impossible(std::string msg): exception("This must never happen: " + std::move(msg)) {};
+};
+
+class compression_exception : public exception {
+public:
+    explicit compression_exception(std::string msg): exception("Cannot compress / decompress: " + std::move(msg)) {};
+};
+
+class signature_exception : public exception {
+public:
+    explicit signature_exception(std::string msg): exception("Cannot sign / verify: " + std::move(msg)) {};
+};
+
+class encryption_exception : public exception {
+public:
+    explicit encryption_exception(std::string msg): exception("Cannot encrypt / decrypt: " + std::move(msg)) {};
+};
+
+class malformed_msg_exception : public exception {
+public:
+    explicit malformed_msg_exception(std::string msg): exception("Malformed message: " + std::move(msg)) {};
+};
+
+class unknown_algorythm : public exception {
+public:
+    const std::string_view algo;
+
+    explicit unknown_algorythm(std::string_view algo): 
+    exception(fastconcat::concat("Unknown algorythm '", algo, "'")), algo(algo) {};
+};
+
+class illegal_state : public exception {
+public:
+    explicit illegal_state(std::string msg): exception("Illegal state: " + std::move(msg)) {};
+};
+
 class akovoxmsg;
 
 typedef void(* compression_f)(std::vector<uint8_t> &);
