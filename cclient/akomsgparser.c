@@ -193,7 +193,7 @@ size_t data_length(const size_t data_len) {
     return data_len + 7;
 }
 uint8_t *append_data(uint8_t *dest, const uint8_t *data, const size_t data_len) {
-    if (__builtin_expect((data + data_len <= dest) || (dest + data_len + 7 <= data), 0)) {
+    if (__builtin_expect(!((data + data_len <= dest) || (dest + data_len + 7 <= data)), 0)) {
         return 0;
     }
     dest[0] = C_STX;

@@ -96,45 +96,6 @@ akovoxmsg akovox::parse(const uint8_t * const data, uint32_t length) {
                     );
 }
 
-inline bool akovoxmsg::is_encrypted() const noexcept {
-    return AKOMSG_IS_ENCRYPTED(this->_flags);
-}
-
-inline bool akovoxmsg::is_signed() const noexcept {
-    return AKOMSG_IS_SIGNED(this->_flags);
-}
-
-inline bool akovoxmsg::is_compressed() const noexcept {
-    return AKOMSG_IS_COMPRESSED(this->_flags);
-}
-
-inline uint8_t akovoxmsg::raw_flags() const noexcept {
-    return this->_flags;
-}
-
-
-inline akomsg_mtype akovoxmsg::type() const noexcept {
-    return this->_type;
-}
-inline uint32_t akovoxmsg::protocol() const noexcept {
-    return this->_protocol;
-}
-inline uint64_t akovoxmsg::id() const noexcept {
-    return this->_msg_id;
-}
-inline const std::string &akovoxmsg::sender() const noexcept {
-    return this->_sender;
-}
-inline const std::string &akovoxmsg::receiver() const noexcept {
-    return this->_receiver;
-}
-inline const std::unordered_map<std::string, std::variant<int64_t, std::string> > &akovoxmsg::headers() const noexcept {
-    return this->_headers;
-}
-inline const std::vector<uint8_t> &akovoxmsg::raw_data() const noexcept {
-    return this->_data;
-}
-
 size_t akovox::byte_length(const akovoxmsg &msg) {
     size_t res = signature_len;
     res += start_header_length(msg.sender().length(), msg.receiver().length());

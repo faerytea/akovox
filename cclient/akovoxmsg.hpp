@@ -1,3 +1,5 @@
+#ifndef AKOVOXMSG_HPP
+#define AKOVOXMSG_HPP
 #include "akomsgparser.h"
 
 #include <string>
@@ -62,18 +64,40 @@ public:
             );
     // ~akovoxmsg();
 
-    inline bool is_compressed() const noexcept;
-    inline bool is_signed() const noexcept;
-    inline bool is_encrypted() const noexcept;
-    inline uint8_t raw_flags() const noexcept;
+    inline bool is_compressed() const noexcept {
+        return AKOMSG_IS_COMPRESSED(this->_flags);
+    }
+    inline bool is_signed() const noexcept {
+        return AKOMSG_IS_SIGNED(this->_flags);
+    }
+    inline bool is_encrypted() const noexcept {
+        return AKOMSG_IS_ENCRYPTED(this->_flags);
+    }
+    inline uint8_t raw_flags() const noexcept {
+        return this->_flags;
+    }
 
-    inline akomsg_mtype type() const noexcept;
-    inline uint32_t protocol() const noexcept;
-    inline uint64_t id() const noexcept;
-    inline const std::string &sender() const noexcept;
-    inline const std::string &receiver() const noexcept;
-    inline const std::unordered_map<std::string, std::variant<int64_t, std::string> > &headers() const noexcept;
-    inline const std::vector<uint8_t> &raw_data() const noexcept;
+    inline akomsg_mtype type() const noexcept {
+        return this->_type;
+    }
+    inline uint32_t protocol() const noexcept {
+        return this->_protocol;
+    }
+    inline uint64_t id() const noexcept {
+        return this->_msg_id;
+    }
+    inline const std::string &sender() const noexcept {
+        return this->_sender;
+    }
+    inline const std::string &receiver() const noexcept {
+        return this->_receiver;
+    }
+    inline const std::unordered_map<std::string, std::variant<int64_t, std::string> > &headers() const noexcept {
+        return this->_headers;
+    }
+    inline const std::vector<uint8_t> &raw_data() const noexcept {
+        return this->_data;
+    }
 
 //     template <typename FCType, typename FSType, typename FEType>
 // #if defined(__cpp_concepts) && __cpp_concepts >= 201907L
@@ -147,3 +171,5 @@ size_t byte_length(const akovoxmsg &msg);
 uint8_t *write(uint8_t *dest, const akovoxmsg &msg);
 
 }
+
+#endif

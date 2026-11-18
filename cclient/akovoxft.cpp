@@ -467,10 +467,11 @@ void handle_incoming(
      && *(reinterpret_cast<const uint64_t * const>(UDP_BUFFER)) == 0) {
         handle_incoming_server(len);
     } else {
+        handle_incoming_client(len);
         // maybe client
-        SAFE_OUT {
-            std::cout << std::string_view(reinterpret_cast<const char * const>(UDP_BUFFER), len) << std::endl;
-        }
+        // SAFE_OUT {
+        //     std::cout << std::string_view(reinterpret_cast<const char * const>(UDP_BUFFER), len) << std::endl;
+        // }
     }
 }
 
@@ -506,7 +507,7 @@ void broadcast(const char *line) {
         std::vector<uint8_t>((const uint8_t *) line, ((const uint8_t *) line) + strlen(line))
     );
     if (base.raw_data().size() > 400) akovox::compress(base, std::string_view(akovox::DEFLATE));
-    akovox::sign(base, akovox::ED25519, state.me.ssk, crypto_sign_SECRETKEYBYTES);
+    // akovox::sign(base, akovox::ED25519, state.me.ssk, crypto_sign_SECRETKEYBYTES);
     for (auto &p : state.participants) {
         if (p.first == state.me_as_peer.id) continue;
         if (p.second.for_me.empty()) {
@@ -517,9 +518,9 @@ void broadcast(const char *line) {
         }
         akovox::akovoxmsg c(base);
         c._receiver = p.second.name;
-        akovox::encrypt(c, akovox::X25519XSalsa, p.second.for_me.data(), crypto_box_BEFORENMBYTES);
+        // akovox::encrypt(c, akovox::X25519XSalsa, p.second.for_me.data(), crypto_box_BEFORENMBYTES);
         auto end = akovox::write(UDP_BUFFER, c);
-        send_buffer(p.second.peer.id, p.second.peer.port, end - UDP_BUFFER);
+        send_buffer(p.second.peer.ip, p.second.peer.port, end - UDP_BUFFER);
     }
 }
 

@@ -17,9 +17,9 @@ typedef enum {
     AKOMSG_MAGNET = 6
 } akomsg_mtype;
 
-#define AKOMSG_IS_ENCRYPTED(X) (!!((X) & 0x01))
+#define AKOMSG_IS_ENCRYPTED(X) (!!((X) & 0x04))
 #define AKOMSG_IS_SIGNED(X) (!!((X) & 0x02))
-#define AKOMSG_IS_COMPRESSED(X) (!!((X) & 0x04))
+#define AKOMSG_IS_COMPRESSED(X) (!!((X) & 0x01))
 
 typedef struct str_slice {
     const char *p;
