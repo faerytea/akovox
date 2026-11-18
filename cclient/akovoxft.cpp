@@ -436,6 +436,8 @@ void handle_incoming_client(const size_t len) {
         spkl = pit->second.sign_pk.size();
         cpkl = pit->second.crypt_pk.size();
     }
+    std::string specials;
+    specials.reserve(10);
     // auto peer = state. // todo: name -> id mapping
     if (msg.is_encrypted() && cpk != nullptr) {
         if (pit->second.for_me.empty()) {
@@ -445,15 +447,19 @@ void handle_incoming_client(const size_t len) {
             pit->second.for_me.swap(shared);
         }
         akovox::decrypt(msg, pit->second.for_me.data(), pit->second.for_me.size());
+        specials.append("\xe2\x9a\xbf");
     }
     if (msg.is_signed() && spk != nullptr) {
         akovox::break_seal(msg, spk, spkl);
+        specials.append("\xe2\x9c\x93");
     }
     if (msg.is_compressed()) {
         akovox::decompress(msg);
+        specials.append("\xe2\x89\xa1");
     }
     SAFE_OUT {
-        std::cout << msg.sender() << "\n\t" << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) << std::endl;
+        std::cout << msg.sender() << "|" << specials
+                  << "\n\t" << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) << std::endl;
     }
 }
 
@@ -507,7 +513,7 @@ void broadcast(const char *line) {
         std::vector<uint8_t>((const uint8_t *) line, ((const uint8_t *) line) + strlen(line))
     );
     if (base.raw_data().size() > 400) akovox::compress(base, std::string_view(akovox::DEFLATE));
-    // akovox::sign(base, akovox::ED25519, state.me.ssk, crypto_sign_SECRETKEYBYTES);
+    akovox::sign(base, akovox::ED25519, state.me.ssk, crypto_sign_SECRETKEYBYTES);
     for (auto &p : state.participants) {
         if (p.first == state.me_as_peer.id) continue;
         if (p.second.for_me.empty()) {

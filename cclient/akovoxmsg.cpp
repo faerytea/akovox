@@ -235,6 +235,7 @@ void akovox::verify_ed25519(std::vector<uint8_t> &data, const uint8_t *key, cons
     auto data_len = data.size() - crypto_sign_BYTES;
     auto v_r = crypto_sign_ed25519_verify_detached(data.data() + data_len, data.data(), data_len, key);
     if (v_r != 0) throw signature_exception("bad signature: " + std::to_string(v_r));
+    data.resize(data_len);
 }
 void akovox::encrypt_sodium(std::vector<uint8_t> &data, const uint8_t *key, const size_t key_len) {
     auto si = sodium_init();
@@ -377,7 +378,7 @@ akovoxmsg &akovox::decompress(
     if (!flag_is_highest(0x01, msg.raw_flags()))
         throw illegal_state("trying to decompress modified body (f:" + std::to_string(msg.raw_flags()) + ")");;
     auto compression_header = msg.headers().find("C");
-    std::string_view compression_name = ED25519;
+    std::string_view compression_name = DEFLATE;
     if (compression_header != msg.headers().end()) {
         auto &v = compression_header->second;
         if (std::holds_alternative<std::string>(v)) {
