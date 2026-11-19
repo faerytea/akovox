@@ -117,10 +117,10 @@ int parse(void *ctx, const uint8_t * const data, uint32_t length
         }
         if (on_hr != AKOMSG_CONTINUE) return on_hr;
     }
-    if (*i != C_STX) return -6; // impossible
+    if (*i != C_STX) return -7; // impossible
     if (i + 6 >= end) return -1; // too small
     if (*(end - 1) != C_EOT
-     || *(end - 6) != C_ETX) return -5; // bad body
+     || *(end - 6) != C_ETX) return -6; // bad body
     uint32_t crc = gu32(end-5);
     return on_data == 0 ? 0 : on_data(ctx, (i+1), (end - 6) - (i + 1), crc);
 }

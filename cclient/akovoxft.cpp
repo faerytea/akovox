@@ -69,15 +69,17 @@ class _readline_guard {
 public:
     bool run = true;
     _readline_guard() {
-        rl_save_prompt();
-        std::fprintf(rl_outstream, "\r\033K");
+        // rl_save_prompt();
+        std::fprintf(rl_outstream, "\r\033[2K");
         std::fflush(rl_outstream);
     }
     ~_readline_guard() {
+        std::cout.flush();
+        std::cerr.flush();
         std::fprintf(rl_outstream, "\r\n");
         std::fflush(rl_outstream);
         rl_on_new_line();
-        rl_restore_prompt();
+        // rl_restore_prompt();
         rl_redisplay();
     }
 };
@@ -446,12 +448,13 @@ void handle_incoming_client(const size_t len) {
     const unsigned char *spk = nullptr, *cpk = nullptr;
     size_t spkl = 0, cpkl = 0;
     participant_map::iterator pit = state.participants.end();
+    std::string specials;
     if (user_id_it != state.known_names.end()) {
         pit = state.participants.find(user_id_it->second);
         if (pit == state.participants.end()) {
             LOG(FATAL) {
                 std::cerr << "User '" << msg.sender() << "' have id ("
-                          << user_id_it->second << "), but no 'participant'" << std::endl;
+                        << user_id_it->second << "), but no 'participant'" << std::endl;
             }
             return;
         }
@@ -459,35 +462,48 @@ void handle_incoming_client(const size_t len) {
         cpk = pit->second.crypt_pk.data();
         spkl = pit->second.sign_pk.size();
         cpkl = pit->second.crypt_pk.size();
+        specials.reserve(10);
+    } else {
+        specials.append("(unknown participant)");
     }
-    std::string specials;
-    specials.reserve(10);
-    // auto peer = state. // todo: name -> id mapping
-    if (msg.is_encrypted() && cpk != nullptr) {
-        if (pit->second.for_me.empty()) {
-            std::vector<uint8_t> shared(crypto_box_curve25519xsalsa20poly1305_BEFORENMBYTES);
-            auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), cpk, state.me.csk);
-            if (r == -1) throw -7;
-            SAFE_OUT {
-                std::cerr << "Calculated shared secret for " << pit->second.name << std::endl;
+    try {
+        // auto peer = state. // todo: name -> id mapping
+        if (msg.is_encrypted() && cpk != nullptr) {
+            if (pit->second.for_me.empty()) {
+                std::vector<uint8_t> shared(crypto_box_curve25519xsalsa20poly1305_BEFORENMBYTES);
+                auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), cpk, state.me.csk);
+                if (r == -1) throw -7;
+                LOG(VERBOSE) {
+                    std::cerr << "Calculated shared secret for " << pit->second.name << std::endl;
+                    dump(shared);
+                }
+                pit->second.for_me.swap(shared);
             }
-            dump(shared);
-            pit->second.for_me.swap(shared);
+            akovox::decrypt(msg, pit->second.for_me.data(), pit->second.for_me.size());
+            specials.append("\xe2\x9a\xbf");
         }
-        akovox::decrypt(msg, pit->second.for_me.data(), pit->second.for_me.size());
-        specials.append("\xe2\x9a\xbf");
-    }
-    if (msg.is_signed() && spk != nullptr) {
-        akovox::break_seal(msg, spk, spkl);
-        specials.append("\xe2\x9c\x93");
-    }
-    if (msg.is_compressed()) {
-        akovox::decompress(msg);
-        specials.append("\xe2\x89\xa1");
+        if (msg.is_signed() && spk != nullptr) {
+            akovox::break_seal(msg, spk, spkl);
+            specials.append("\xe2\x9c\x93");
+        }
+        if (msg.is_compressed()) {
+            akovox::decompress(msg);
+            specials.append("\xe2\x89\xa1");
+        }
+    } catch (const akovox::exception &e) {
+        specials.append("[")
+                .append(e.what())
+                .append("]");
     }
     SAFE_OUT {
-        std::cout << msg.sender() << "|" << specials
-                  << "\n\t" << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) << std::endl;
+        std::cout << msg.sender() << "|" << specials;
+        if (msg.raw_flags() == 0) {
+            std::cout << "\n\t" 
+                      << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) 
+                      << std::endl;
+        } else {
+            std::cout << " (cannot decode)" << std::endl;
+        }
     }
 }
 
@@ -501,7 +517,13 @@ void handle_incoming(
      && *(reinterpret_cast<const uint64_t * const>(UDP_BUFFER)) == 0) {
         handle_incoming_server(len);
     } else {
-        handle_incoming_client(len);
+        try {
+            handle_incoming_client(len);
+        } catch (const akovox::malformed_msg_exception &e) {
+            LOG(ERROR) {
+                std::cerr << e.what() << std::endl;
+            }
+        }
         // maybe client
         // SAFE_OUT {
         //     std::cout << std::string_view(reinterpret_cast<const char * const>(UDP_BUFFER), len) << std::endl;
@@ -548,10 +570,10 @@ void broadcast(const char *line) {
             std::vector<uint8_t> shared(crypto_box_BEFORENMBYTES);
             auto r = crypto_box_curve25519xsalsa20poly1305_beforenm(shared.data(), p.second.crypt_pk.data(), state.me.csk);
             if (r == -1) throw -7;
-            SAFE_OUT {
+            LOG(VERBOSE) {
                 std::cerr << "Calculated shared secret for " << p.second.name << std::endl;
+                dump(shared);
             }
-            dump(shared);
             p.second.for_me.swap(shared);
         }
         akovox::akovoxmsg c(base);
@@ -579,6 +601,8 @@ void line_handler(char *line) {
         // }
     }
     rl_free(line);
+    std::fprintf(rl_outstream, "\r\033[2K");
+    std::fflush(rl_outstream);
 }
 
 int main(int argc, char *argv[]) {

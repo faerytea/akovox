@@ -86,8 +86,25 @@ akovoxmsg akovox::parse(const uint8_t * const data, uint32_t length) {
     std::unordered_map<std::string, std::variant<int64_t, std::string> > headers;
     ps.m = &headers;
     auto res = parse(&ps, data, length, on_sig, on_hs, on_hrs, on_hri, on_data);
-    if (res != 0)
+    switch (res) {
+    case 0:
+        [[likely]]
+        break; // OK
+    case -1:
+        throw malformed_msg_exception("Message is too small");
+    case -2:
+        throw malformed_msg_exception(fastconcat::concat("Bad signature: ", data[0], data[1]));
+    case -3:
+        throw malformed_msg_exception("Malformed header");
+    case -4:
+        throw malformed_msg_exception("Unbounded string");
+    case -5:
+        throw malformed_msg_exception("Unfinished i56 field");
+    case -6:
+        throw malformed_msg_exception("Mangled body");
+    default:
         throw impossible("'parse' returned nonz " + std::to_string(res));
+    }
     auto ccrc = posix_crc32(ps.data, ps.data_len);
     if (ccrc != ps.crc) 
         throw malformed_msg_exception(

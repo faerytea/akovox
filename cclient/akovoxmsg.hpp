@@ -24,6 +24,10 @@ namespace fastconcat {
         return s ? std::string_view{s} : std::string_view{};
     }
 
+    inline std::string_view as_view(const char c) noexcept {
+        return std::string_view{&c, 1};
+    }
+
     template <typename... Args>
     std::string concat(const Args&... args) {
         const std::size_t total_size =
