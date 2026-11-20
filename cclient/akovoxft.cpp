@@ -1,3 +1,6 @@
+#define ICONV_SUPPORT
+#define __DEBUG__
+
 #include "./../srv/akovoxserver.h"
 
 #include <string>
@@ -11,6 +14,9 @@
 #include <cstdio>
 
 #include <sodium.h>
+#ifdef ICONV_SUPPORT
+#include <iconv.h>
+#endif
 
 #include <poll.h>
 #include <unistd.h>
@@ -418,8 +424,8 @@ void handle_incoming_server(const size_t len) {
     }
 }
 
-#define DEBUG
-#ifdef DEBUG
+#define __DEBUG__
+#ifdef __DEBUG__
 void dump(const std::vector<uint8_t> &data) {
     SAFE_OUT {
         for (auto b : data) {
@@ -441,6 +447,98 @@ void dump(const unsigned char *data, size_t len) {
 #else
 inline void dump(const std::vector<uint8_t> &data) {}
 #endif
+
+void handle_incoming_tech(const akovox::akovoxmsg &msg) {
+    //
+}
+
+void handle_incoming_text(const akovox::akovoxmsg &msg, const std::string &comment) {
+    const char *out = reinterpret_cast<const char *>(msg.raw_data().data());
+    size_t out_len = msg.raw_data().size();
+    auto cs_hdr = msg.headers().find("cs");
+    if (cs_hdr != msg.headers().end()) {
+        [[unlikely]]
+        auto csp = std::get_if<std::string>(&(cs_hdr->second));
+        if (csp) {
+            auto &cs = *csp;
+            bool isUTF8 = cs.length() >= 4
+                       && (cs[0] == 'u' || cs[0] == 'U')
+                       && (cs[1] == 't' || cs[1] == 'T')
+                       && (cs[2] == 'f' || cs[2] == 'F')
+                       && (
+                        (cs.length() == 4 && cs[3] == '8')
+                     || (cs.length() == 5 && cs[4] == '8' && (cs[3] == '-' || cs[3] == '_' || cs[3] == ' '))
+                       );
+            if (!isUTF8) {
+                [[likely]]
+#ifdef ICONV_SUPPORT
+                iconv_t ics = iconv_open("UTF-8", cs.c_str());
+                if (ics == (iconv_t)(-1)) {
+                    LOG(ERROR) {
+                        std::cerr << "Undecodable charset " << cs << std::endl;
+                    }
+                } else {
+                    size_t msg_size = msg.raw_data().size();
+                    static std::vector<char> outbuffer;
+                    size_t expected_maxlen = std::max(
+                        64 + 4 * msg_size, 
+                        std::max(msg_size, msg_size * 2)
+                    );
+                    if (expected_maxlen < (1 << 16) && outbuffer.capacity() > (1 << 20)) {
+                        // shrink
+                        std::vector<char> newbuffer(expected_maxlen);
+                        outbuffer.swap(newbuffer);
+                        LOG(VERBOSE) {
+                            std::cerr << "iconv buffer swap: " << newbuffer.capacity() << "->" << outbuffer.capacity() << std::endl;
+                        }
+                    }
+                    outbuffer.resize(expected_maxlen);
+                    char *inp = (char *) msg.raw_data().data(),
+                         *oup = (char *) outbuffer.data();
+                    size_t inleft = msg_size,
+                           ouleft = outbuffer.size();
+                    auto icr = iconv(ics, &inp, &inleft, &oup, &ouleft);
+                    if (icr >= 0) {
+                        if (inleft > 0) {
+                            LOG(ERROR) {
+                                std::cerr << "Last " << inleft << " bytes weren't converted" << std::endl;
+                            }
+                        }
+                        out = outbuffer.data();
+                        out_len = oup - outbuffer.data();
+                    } else {
+                        LOG(ERROR) {
+                            std::cerr << "iconv() returned " << icr << std::endl;
+                            perror("iconv");
+                        }
+                        out_len = 0;
+                    }
+                }
+                iconv_close(ics);
+#else
+                LOG(ERROR) {
+                    std::cerr << "Non UTF-8 charset " << cs << std::endl;
+                }
+#endif
+            }
+        } else {
+            LOG(ERROR) {
+                std::cerr << "Bad 'cs' header" << std::endl;
+            }
+            out_len = 0;
+        }
+    }
+    SAFE_OUT {
+        std::cout << msg.sender() << "|" << comment;
+        if (msg.raw_flags() == 0) {
+            std::cout << "\n\t" 
+                      << std::string_view(out, out_len) 
+                      << std::endl;
+        } else {
+            std::cout << " (cannot decode)" << std::endl;
+        }
+    }
+}
 
 void handle_incoming_client(const size_t len) {
     auto msg = akovox::parse(UDP_BUFFER, len);
@@ -495,16 +593,7 @@ void handle_incoming_client(const size_t len) {
                 .append(e.what())
                 .append("]");
     }
-    SAFE_OUT {
-        std::cout << msg.sender() << "|" << specials;
-        if (msg.raw_flags() == 0) {
-            std::cout << "\n\t" 
-                      << std::string_view((const char *) msg.raw_data().data(), msg.raw_data().size()) 
-                      << std::endl;
-        } else {
-            std::cout << " (cannot decode)" << std::endl;
-        }
-    }
+    //
 }
 
 void handle_incoming(
@@ -524,10 +613,6 @@ void handle_incoming(
                 std::cerr << e.what() << std::endl;
             }
         }
-        // maybe client
-        // SAFE_OUT {
-        //     std::cout << std::string_view(reinterpret_cast<const char * const>(UDP_BUFFER), len) << std::endl;
-        // }
     }
 }
 
